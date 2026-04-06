@@ -1,0 +1,4 @@
+2024-06-01T12:34:56.789Z INFO GET /api/users 200 123ms - User list retrieved successfully
+2024-06-01T12:35:00.123Z ERROR POST /api/login 500 50ms - Database connection failed
+2024-06-01T12:35:05.456Z WARN GET /api/products 404 30ms - Product not found
+Malformed log line example
