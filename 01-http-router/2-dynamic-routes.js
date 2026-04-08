@@ -1,3 +1,51 @@
+
+
+
+// =============================================================================
+// HTTP ROUTER — Dynamic Routes (Parametric Matching)
+// =============================================================================
+//
+// CONCEPT:
+//   Extends the static router by supporting URL parameters like /users/:id.
+//   Instead of a Map keyed by exact path, each method stores an ordered array
+//   of compiled route objects. On each request, the array is scanned linearly
+//   until a regex match is found.
+//
+// KEY COMPONENTS:
+//   - routes      : { GET, POST, PUT, DELETE } — each an Array of route objects
+//   - compileRoute: converts a path template → { regex, keys }
+//                   e.g. /users/:id  →  regex: /^\/users\/([^/]+)$/  keys: ['id']
+//   - findRoute   : iterates compiled routes, runs regex.exec(path), extracts params
+//   - middlewares : ordered array of async functions run before route handler
+//   - handleRequest: parses URL + body, finds route, runs middleware chain, dispatches
+//
+// ROUTE COMPILATION (key interview insight):
+//   Each :param segment is replaced with the capture group ([^/]+) and the
+//   param name is recorded in a `keys` array. When a request comes in,
+//   regex match groups map 1-to-1 with the keys array to produce req.params.
+//
+//   Example:
+//     Route registered : /posts/:postId/comments/:commentId
+//     Compiled regex   : /^\/posts\/([^/]+)\/comments\/([^/]+)$/
+//     keys             : ['postId', 'commentId']
+//     Request path     : /posts/42/comments/7
+//     req.params       : { postId: '42', commentId: '7' }
+//
+// REQUEST LIFECYCLE:
+//   1. Parse URL → extract pathname and query string
+//   2. Parse body (for POST/PUT) → attach to req.body
+//   3. findRoute → scan compiled routes for a regex match → extract req.params
+//   4. Run middleware chain (req, res, next) in order
+//   5. Call matched handler — or respond 404 if none matched
+//   6. Catch any handler error and respond 500
+//
+// STATIC vs DYNAMIC LOOKUP:
+//   Static (file 1) : Map.get(path)  → O(1), but exact match only
+//   Dynamic (here)  : linear scan    → O(n routes), but supports :params
+//   Real routers (e.g. Express) use a Radix/Patricia trie to get O(log n) with params.
+//
+// =============================================================================
+
 const http = require('http');
 const url = require('url');
 

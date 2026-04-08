@@ -1,3 +1,66 @@
+// =============================================================================
+// HTTP ROUTER — Dynamic Routes (TypeScript)
+// =============================================================================
+//
+// CONCEPT:
+//   TypeScript rewrite of 2-dynamic-routes.js. Supports :param URL segments via
+//   regex-based matching. Routes are compiled once at registration time and stored
+//   as CompiledRoute objects in per-method arrays — scanned linearly per request.
+//
+// KEY TYPES:
+//   - AppRequest     : extends IncomingMessage with typed query, body, AND params fields
+//   - CompiledRoute  : { routePath, regex, keys, handler } — the compiled form of a route
+//   - HttpMethod     : 'GET' | 'POST' | 'PUT' | 'DELETE'
+//
+// KEY COMPONENTS:
+//   - compileRoute() : converts '/users/:id' → { regex: /^\/users\/([^/]+)$/, keys: ['id'] }
+//                      called ONCE at registration, not per request
+//   - findRoute()    : linear scan — runs regex.exec(path), maps captures → req.params
+//   - escapeRegex()  : escapes static segments so dots/parens are matched literally
+//   - runMiddleware(): isolated middleware chain, runs AFTER route lookup (see below)
+//   - parseBody()    : buffers streamed chunks, JSON-parses on 'end', never rejects
+//   - sendJson()     : centralises writeHead + JSON.stringify
+//
+// IMPROVEMENTS OVER THE JS VERSION:
+//   ✓ CompiledRoute interface makes the route object shape explicit and type-safe
+//   ✓ AppRequest includes typed `params` field — no casting in handlers
+//   ✓ escapeRegex() added — static segments with dots/parens no longer silently wildcard
+//   ✓ compileRoute() uses split-map instead of a single .replace() — handles mixed segments
+//   ✓ .catch() on handleRequest in listen() — no unhandled promise rejections
+//
+// ROUTE COMPILATION (key interview insight):
+//   Each :param segment is replaced with capture group ([^/]+) at registration.
+//   [^/]+ = "one or more non-slash chars" — ensures one segment per param.
+//   Static segments are escaped so special regex chars are treated literally.
+//
+//   Example:
+//     Input  : '/posts/:postId/comments/:commentId'
+//     Regex  : /^\/posts\/([^/]+)\/comments\/([^/]+)$/
+//     keys   : ['postId', 'commentId']
+//     Path   : '/posts/42/comments/7'
+//     Params : { postId: '42', commentId: '7' }
+//
+// REQUEST LIFECYCLE:
+//   1. Parse URL → attach query to req
+//   2. Parse body → attach to req.body
+//   3. findRoute → linear scan for regex match → attach params to req
+//   4. Respond 404 immediately if no match (middleware is SKIPPED for 404s)
+//   5. Run middleware chain (req already has params attached — useful for auth guards)
+//   6. Call matched handler — catch errors → respond 500
+//
+// MIDDLEWARE ORDER DIFFERENCE vs v1:
+//   v1: middleware → route lookup → handler  (middleware fires even on 404 paths)
+//   v2: route lookup → middleware → handler  (middleware skipped on 404 paths)
+//   Trade-off: v2 avoids running expensive middleware on invalid routes,
+//   but loses visibility into bad requests (e.g. access logs miss 404s).
+//
+// STATIC vs DYNAMIC LOOKUP:
+//   Static (file 1) : Map.get(path) → O(1), exact match only
+//   Dynamic (here)  : linear scan   → O(n routes), supports :params
+//   Real routers (e.g. Express) use a Radix/Patricia trie → O(log n) with params.
+//
+// =============================================================================
+
 import http, { IncomingMessage, ServerResponse } from 'http';
 import { parse } from 'url';
 

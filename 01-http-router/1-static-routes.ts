@@ -1,3 +1,49 @@
+
+// =============================================================================
+// HTTP ROUTER — Static Routes (TypeScript)
+// =============================================================================
+//
+// CONCEPT:
+//   TypeScript rewrite of 1-static-routes.js. Same static Map-based routing,
+//   but with full type safety: typed request extensions, constrained HTTP method
+//   strings, and explicit handler/middleware signatures enforced at every call site.
+//
+// KEY TYPES:
+//   - AppRequest  : extends IncomingMessage with typed `query` and `body` fields
+//   - Handler     : (req: AppRequest, res: ServerResponse) => Promise<void> | void
+//   - Middleware  : (req, res, next) => Promise<void> | void
+//   - HttpMethod  : 'GET' | 'POST' | 'PUT' | 'DELETE'  ← prevents typo bugs like routes['GETT']
+//
+// KEY COMPONENTS:
+//   - routes      : Record<HttpMethod, Map<string, Handler>> — O(1) exact path lookup
+//   - register()  : single private method used by get/post/put/delete (no repetition)
+//   - runMiddleware: isolated into its own method; middleware runs BEFORE route lookup
+//   - parseBody   : buffers the request stream, JSON-parses on 'end', never rejects
+//   - sendJson    : helper to centralise writeHead + JSON.stringify
+//
+// IMPROVEMENTS OVER THE JS VERSION:
+//   ✓ HttpMethod union type prevents silent routing bugs
+//   ✓ AppRequest interface gives handlers typed req.query / req.body
+//   ✓ register() consolidates 4 identical one-liners into one private method
+//   ✓ .catch() on handleRequest inside listen() — prevents unhandled promise rejections
+//   ✓ Fixed chunk.toSring() typo → chunk.toString() in parseBody
+//   ✓ Fixed missing leading slash on 'users/:id' registrations
+//
+// REQUEST LIFECYCLE:
+//   1. Parse URL → attach query to req
+//   2. Parse body (buffered stream) → attach to req.body
+//   3. Run middleware chain (always fires, even on 404 paths)
+//   4. Look up handler via routes[method].get(path)
+//   5. Call handler — or respond 404 if not found
+//   6. Catch handler errors → respond 500 (never leak stack traces to client)
+//
+// STATIC ROUTING CAVEAT:
+//   Map lookup is O(1) but exact-match only.
+//   /users/123 will NOT match a registered '/users/:id' pattern.
+//   See 2-dynamic-routes.ts for regex-based parametric matching.
+//
+// =============================================================================
+
 import http, { IncomingMessage, ServerResponse } from 'http';
 import { parse } from 'url';
 
